@@ -9,10 +9,6 @@ def make_arrow_compatible(df):
         df[col] = df[col].astype(str)
     return df
 
-# Funktion zur Überprüfung auf Duplikate in der Spalte 'Jahrgang'
-def check_duplicates(df, column):
-    return df[df.duplicated(subset=column, keep=False)]
-
 # Titel der Streamlit-Anwendung
 st.title("Deutsche Nationalbibliothek: Dublettencheck")
 
@@ -62,7 +58,11 @@ if page == "Exakte Werte":
             # Los-Button zum Starten der Analyse
             if st.button("Dubletten überprüfen"):
                 # Funktion zur Überprüfung von Duplikaten innerhalb einer Gruppe
-                duplicates = check_duplicates(df, selected_column)
+                def check_duplicates(group):
+                    return group[group.duplicated(subset=selected_column, keep=False)]
+                
+                # Gruppieren nach 'Überordnung' und Überprüfung auf Duplikate innerhalb jeder Gruppe
+                duplicates = df.groupby('Überordnung').apply(check_duplicates).reset_index(drop=True)
                 
                 # Überprüfen, ob Duplikate gefunden wurden
                 if not duplicates.empty:
@@ -79,7 +79,6 @@ if page == "Exakte Werte":
                                 entries_without_urn = df[df['URN'].isnull()]
                                 if not entries_without_urn.empty:
                                     entries_without_urn.to_excel(writer, sheet_name='Duplicates_without_URN', index=False)
-                            writer.save()
                         return towrite.getvalue()
                     
                     excel_file = convert_df(duplicates)
@@ -138,25 +137,28 @@ elif page == "Börsenblatt":
             # Filtern nach Digicode-Wert 'd034'
             df_filtered = df[df['Digicode'] == 'd034']
             
-            # Überprüfung auf Duplikate in der Spalte 'Jahrgang'
-            duplicates = check_duplicates(df_filtered, 'Jahrgang')
+            # Funktion zur Überprüfung von Duplikaten innerhalb einer Gruppe
+            def check_duplicates(group):
+                duplicates = group[group.duplicated(subset=['Jahrgang', 'Erscheinungsjahr'], keep=False)]
+                return duplicates
+
+            # Gruppieren nach 'Ueberordnung' und Überprüfung auf Duplikate innerhalb jeder Gruppe
+            duplicates = df_filtered.groupby('Ueberordnung').apply(check_duplicates).reset_index(drop=True)
             
             # Wenn es Duplikate gibt, diese in einem neuen DataFrame speichern
             if not duplicates.empty:
                 st.write("Folgende Duplikate wurden gefunden:")
                 st.dataframe(duplicates)
 
-                # Funktion zum Konvertieren des DataFrames in eine Excel-Datei
                 def convert_df(df):
                     towrite = io.BytesIO()
                     with pd.ExcelWriter(towrite, engine='openpyxl') as writer:
-                        df.to_excel(writer, index=False, sheet_name='Duplicates')
+                        for ueberordnung, group in df.groupby('Ueberordnung'):
+                            group.to_excel(writer, index=False, sheet_name=str(ueberordnung)[:31])
                         # Überprüfen auf Einträge ohne URN
-                        if 'URN' in df.columns:
-                            entries_without_urn = df[df['URN'].isnull()]
-                            if not entries_without_urn.empty:
-                                entries_without_urn.to_excel(writer, sheet_name='Duplicates_without_URN', index=False)
-                        writer.save()
+                        entries_without_urn = df[df['URN'].isnull()]
+                        if not entries_without_urn.empty:
+                            entries_without_urn.to_excel(writer, sheet_name='Duplicates_without_URN', index=False)
                     return towrite.getvalue()
                 
                 excel_file = convert_df(duplicates)
